@@ -123,10 +123,80 @@ violation. A case more likely to trigger a count claim (e.g. "how many
 distinct products were sold?") would better prove it catches something,
 not just that it doesn't false-positive.
 
+## Run 10 — memory (ChromaDB) + observability built
+Added `app/memory.py`: ChromaDB-backed retrieval of 5 business-term
+definitions (revenue, profit, discount, region, order), injected into
+the SQL Agent and Interpreter prompts via the Planner. New Q9 test case
+("What is our profit margin?") exercises it — this dataset has no cost
+data, so profit genuinely isn't computable, and the SQL Agent can now
+respond `NOT_COMPUTABLE` instead of guessing at a query, with a
+dedicated `not_computable` flag that blocks the retry loop from fighting
+something that was never fixable in the first place.
+
+Also added `app/observability.py`: local JSON trace logging (every run
+dumped to `outputs/traces/`, always works) plus an optional Langfuse
+hook wired centrally into `get_llm()` — activates only if credentials
+are set in `.env`, otherwise a clean no-op. Not yet run against real
+Langfuse credentials in this session (no account configured); the local
+trace logging is the piece actually verified working.
+
+## Run 11 — Q9 confirmed working, memory relevance threshold added
+Full run confirmed step 8 working correctly: Q9 (profit margin) got
+`SQL: None`, `VALIDATED: False`, no retry attempted (the `not_computable`
+flag correctly blocked the retry loop), and an honest final answer
+citing missing cost data. All Q1-Q8 stayed consistent, eval harness
+still 9/9.
+
+Noticed: every query retrieved exactly 2 business-term notes regardless
+of relevance — e.g. the shoe-size nonsense question (Q5) pulled
+"order_id" and "revenue" definitions that have nothing to do with it,
+because retrieval had no similarity threshold, just top-k. Fixed by
+filtering on ChromaDB's returned distances (`_MAX_DISTANCE` in
+`memory.py`) so an unrelated question now returns no context instead of
+the two least-irrelevant matches. The threshold value is an empirical
+starting point, not tuned against this dataset's actual distance
+distribution yet — `DEBUG_MEMORY=1` prints each query's candidates and
+distances for that tuning.
+
+## Run 12 — memory threshold confirmed well-calibrated, Python Agent generalized
+`DEBUG_MEMORY=1` run confirmed `_MAX_DISTANCE = 1.0` works reasonably:
+clearly relevant questions (Q1, Q7-Q9) retrieved notes at distance
+0.74-0.87; clearly irrelevant ones (Q4, Q5) filtered out at 1.14-1.73.
+Borderline case (Q3/Q6 correlation questions, where "discount" is
+tangentially relevant at 1.07-1.42) got filtered — acceptable since
+those questions are answered deterministically by the Python tool, not
+an LLM prompt that would benefit from the context.
+
+Also addressed a self-review point: Python Agent's column candidates
+were a hardcoded list (`["sales", "quantity", "discount"]`) that only
+worked because they happened to match this exact dataset. Now fetched
+dynamically via the same `get_schema` MCP tool `sql_agent` already
+uses, filtered to numeric DuckDB types — a CSV with different numeric
+column names works without editing the file. (Two other self-review
+points — narrow keyword-based routing, and Chart Agent/Validator
+assumptions about this dataset's shape — are real and left as
+documented limitations, not fixed: the routing one was a deliberate
+reliability trade-off after the LLM's own judgment proved unreliable
+twice in testing, not an oversight.)
+
+## Run 13 — Streamlit UI added (step 10, final build-order item)
+Added `streamlit_app.py` — a thin UI layer over the existing
+`build_graph()`, no new agent logic. Chat-style interface, example
+questions in the sidebar, charts rendered inline, an expandable panel
+per answer showing SQL/Python used, business context, and the full
+agent trace. Not yet run interactively in this session (no browser in
+this environment) — syntax-checked and structurally verified against
+the same state fields the CLI (`app/main.py`) already exercises, but
+worth a manual click-through pass to confirm the actual browser
+rendering (chat history ordering, chart image display, expander
+contents) before treating it as fully proven the way the CLI path is.
+
 ## Known limitations (see README for the full list)
 Small-model self-correction isn't perfect (a genuinely malformed query
 sometimes gets retried unchanged rather than fixed); no arbitrary Python
-code execution by design; Python Agent's column list is hardcoded for
-this fixed dataset; the Interpreter's narration of results isn't
+code execution by design; the Interpreter's narration of results isn't
 fact-checked against the actual data (see the "13 unique orders" bug
-above).
+above); Langfuse integration is wired but not yet verified against a
+real account; routing (SQL vs Python, chart-or-not) is keyword-based by
+design, not a general classifier; Chart Agent and Validator still assume
+this dataset's specific shape (single category + single value results).

@@ -22,6 +22,7 @@ SQL_GEN_PROMPT = """You write DuckDB SQL queries.
 
 Table: {table}
 Columns: {columns}
+{business_context}
 
 User question: {question}
 
@@ -36,15 +37,20 @@ Rules:
 - If you select a mix of aggregate functions (SUM, AVG, CORR, etc.) and plain
   columns, every plain column MUST be in a GROUP BY clause, or don't select
   plain columns at all if you only want a single aggregate result.
+- If the business context notes above say something is NOT computable from
+  this data, respond with exactly the single word NOT_COMPUTABLE instead of
+  writing a query that guesses at it.
 - Write ONE read-only SQL query (SELECT/WITH only, no semicolons, no comments).
 
-Respond with ONLY the SQL, nothing else — no markdown fences, no explanation.
+Respond with ONLY the SQL (or NOT_COMPUTABLE), nothing else — no markdown
+fences, no explanation.
 """
 
 SQL_RETRY_PROMPT = """You write DuckDB SQL queries.
 
 Table: {table}
 Columns: {columns}
+{business_context}
 
 User question: {question}
 
@@ -57,6 +63,13 @@ question. Apply the same rules as before (GROUP BY for breakdowns, exact
 column names, no mixing aggregate + non-aggregate columns without
 GROUP BY). Respond with ONLY the corrected SQL, nothing else.
 """
+
+
+def _format_business_context(business_context: list[str] | None) -> str:
+    if not business_context:
+        return ""
+    notes = "\n".join(f"- {c}" for c in business_context)
+    return f"\nBusiness context notes (ground your answer in these):\n{notes}\n"
 
 
 def sql_agent_node(state: GraphState) -> GraphState:
@@ -81,6 +94,7 @@ def sql_agent_node(state: GraphState) -> GraphState:
         f"Rewrite the query to use them." if missing_cols else None
     )
     retry_count = state.get("sql_retry_count", 0)
+    business_context_str = _format_business_context(state.get("business_context"))
 
     if retry_reason:
         retry_count += 1
@@ -92,19 +106,38 @@ def sql_agent_node(state: GraphState) -> GraphState:
         prompt = SQL_RETRY_PROMPT.format(
             table=schema["table"],
             columns=columns_str,
+            business_context=business_context_str,
             question=state["raw_query"],
             prev_sql=state.get("sql_query", ""),
             prev_error=retry_reason,
         )
     else:
         trace.append({"agent": "sql_agent", "action": "get_schema", "detail": f"{len(schema['columns'])} columns"})
-        prompt = SQL_GEN_PROMPT.format(table=schema["table"], columns=columns_str, question=state["raw_query"])
+        prompt = SQL_GEN_PROMPT.format(table=schema["table"], columns=columns_str, business_context=business_context_str, question=state["raw_query"])
 
     llm = get_llm()
     sql_query = llm.invoke(prompt).content.strip()
     # strip accidental markdown fences
     sql_query = sql_query.strip("`").replace("sql\n", "", 1) if sql_query.startswith("```") else sql_query
     sql_query = sql_query.strip()
+
+    if sql_query.upper().rstrip(".") == "NOT_COMPUTABLE":
+        error = "This cannot be computed from the available data."
+        if state.get("business_context"):
+            error += " " + " ".join(state["business_context"])
+        trace.append({"agent": "sql_agent", "action": "not_computable", "detail": error})
+        return {
+            **state,
+            "schema_info": columns_str,
+            "schema_columns": column_names,
+            "sql_query": None,
+            "sql_result": None,
+            "sql_error": error,
+            "not_computable": True,
+            "sql_retry_count": retry_count,
+            "trace": trace,
+            "status": "validating",
+        }
 
     result = call_mcp_tool(_SQL_SERVER, "execute_sql", {"query": sql_query})
 

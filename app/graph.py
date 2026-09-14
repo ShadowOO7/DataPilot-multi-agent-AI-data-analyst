@@ -34,7 +34,7 @@ def route_after_planning(state: GraphState) -> str:
 
 def route_after_validation(state: GraphState) -> str:
     if not state.get("used_python"):
-        has_fixable_issue = bool(state.get("sql_error")) or bool(state.get("missing_columns"))
+        has_fixable_issue = (bool(state.get("sql_error")) or bool(state.get("missing_columns"))) and not state.get("not_computable")
         retries_left = state.get("sql_retry_count", 0) < MAX_SQL_RETRIES
         if not state.get("validated") and has_fixable_issue and retries_left:
             return "retry"

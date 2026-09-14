@@ -17,6 +17,9 @@ class GraphState(TypedDict, total=False):
     raw_query: str
     dataset_name: str              # e.g. "sales" — table name in DuckDB
 
+    # ---- memory (step 8) ----
+    business_context: Optional[List[str]]   # retrieved business-term definitions relevant to this question
+
     # ---- planner output ----
     needs_sql: bool
     needs_python: bool             # for stats not expressible in plain SQL
@@ -30,6 +33,7 @@ class GraphState(TypedDict, total=False):
     sql_query: Optional[str]
     sql_result: Optional[List[Dict[str, Any]]]
     sql_error: Optional[str]
+    not_computable: Optional[bool]  # True when business context says this question can't be answered from the data — retry loop must not fight this
     sql_retry_count: int            # step 5: how many times SQL Agent has retried after a failure
 
     # ---- python agent output (step 6) ----

@@ -20,3 +20,5 @@ ENV/
 *.log
 
 outputs/
+
+chroma_data/

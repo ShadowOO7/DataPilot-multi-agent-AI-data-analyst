@@ -19,6 +19,7 @@ and trace only — informational, not control flow.
 
 from app.state import GraphState
 from app.llm import get_llm
+from app.memory import retrieve_business_context
 
 PLANNER_PROMPT = """You are a planning agent for a data-analysis assistant.
 The dataset is a sales table with columns like product, region, category,
@@ -77,12 +78,17 @@ def planner_node(state: GraphState) -> GraphState:
         detail += " (chart requested by keyword match)"
     trace.append({"agent": "planner", "action": "decide_plan", "detail": detail})
 
+    business_context = retrieve_business_context(state["raw_query"])
+    if business_context:
+        trace.append({"agent": "planner", "action": "retrieve_memory", "detail": f"{len(business_context)} business-term note(s) retrieved"})
+
     return {
         **state,
         "needs_sql": needs_sql,
         "needs_python": needs_python,
         "correlation_route": correlation_route,
         "needs_chart": needs_chart,
+        "business_context": business_context,
         "plan": plan,
         "status": "querying",
         "trace": trace,

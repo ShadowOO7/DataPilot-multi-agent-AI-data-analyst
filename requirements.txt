@@ -12,3 +12,7 @@ uvicorn>=0.30.0
 streamlit>=1.38.0
 chromadb>=0.5.0
 matplotlib>=3.7.0
+
+# Optional — only needed if LANGFUSE_PUBLIC_KEY/LANGFUSE_SECRET_KEY are set
+# in .env (see app/observability.py). Uncomment to enable:
+# langfuse>=2.0.0

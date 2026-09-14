@@ -50,7 +50,10 @@ def validator_node(state: GraphState) -> GraphState:
 
     missing_columns = None
 
-    if sql_error:
+    if state.get("not_computable"):
+        validated = False
+        notes = sql_error or "This cannot be computed from the available data."
+    elif sql_error:
         validated = False
         notes = f"SQL failed: {sql_error}"
     elif sql_result is None:

@@ -4,6 +4,7 @@ Same "before guardrails" baseline-logging idea as job-intel-agent.
 """
 
 from app.graph import build_graph
+from app.observability import save_trace
 
 TEST_QUERIES = [
     {"name": "Q1 - simple aggregation", "question": "What is the total revenue across all sales?"},
@@ -14,6 +15,7 @@ TEST_QUERIES = [
     {"name": "Q6 - likely to trip a SQL error (retry test)", "question": "Show discount, quantity and their correlation together in one row."},
     {"name": "Q7 - chart request", "question": "Show me a chart of total sales by region."},
     {"name": "Q8 - chart on a single aggregate (should fail gracefully)", "question": "Show me a chart of total revenue."},
+    {"name": "Q9 - business-term memory (profit not computable)", "question": "What is our profit margin?"},
 ]
 
 
@@ -40,5 +42,8 @@ if __name__ == "__main__":
         print("SQL_RETRY_COUNT:", result.get("sql_retry_count", 0))
         print("VALIDATED:", result.get("validated"), "-", result.get("validation_notes"))
         print("CHART_PATH:", result.get("chart_path"), "| CHART_ERROR:", result.get("chart_error"))
+        print("BUSINESS_CONTEXT:", result.get("business_context"))
+        trace_path = save_trace(result, q["name"])
+        print("TRACE_LOG:", trace_path)
         print("TRACE:", result.get("trace"))
         print("ANSWER:\n", result.get("final_answer"))
